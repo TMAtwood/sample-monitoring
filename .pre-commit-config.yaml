@@ -5,7 +5,7 @@ repos:
   # General file hygiene
   # =============================================================
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
         name: 'trailing-whitespace: trim trailing whitespace'
@@ -35,7 +35,7 @@ repos:
   # YAML validation (prometheus, alertmanager, loki, tempo, etc.)
   # =============================================================
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-yaml
         name: 'check-yaml: validate YAML syntax'
@@ -46,7 +46,7 @@ repos:
   # JSON validation (Grafana dashboards, package.json, tsconfig)
   # =============================================================
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-json
         name: 'check-json: validate JSON syntax'
@@ -62,7 +62,7 @@ repos:
   # Shell script linting
   # =============================================================
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.10.0.1
+    rev: v0.11.0.1
     hooks:
       - id: shellcheck
         name: 'shellcheck: lint shell scripts'
@@ -70,7 +70,7 @@ repos:
         files: \.sh$
 
   - repo: https://github.com/scop/pre-commit-shfmt
-    rev: v3.10.0-1
+    rev: v3.13.1-1
     hooks:
       - id: shfmt
         name: 'shfmt: format shell scripts'
@@ -81,7 +81,7 @@ repos:
   # Dockerfile linting (native binary — no Docker/Podman needed)
   # =============================================================
   - repo: https://github.com/hadolint/hadolint
-    rev: v2.13.1-beta
+    rev: v2.14.0
     hooks:
       - id: hadolint
         name: 'hadolint: lint Dockerfiles'
@@ -94,7 +94,7 @@ repos:
   # Python — ruff (linting + formatting for fastapi-app, azure-func)
   # =============================================================
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+    rev: v0.15.10
     hooks:
       - id: ruff
         name: 'ruff: lint Python files'
@@ -108,7 +108,7 @@ repos:
   # Secrets scanning
   # =============================================================
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.22.1
+    rev: v8.30.0
     hooks:
       - id: gitleaks
         name: 'gitleaks: scan for hardcoded secrets'
@@ -117,22 +117,23 @@ repos:
   # Markdown linting
   # =============================================================
   - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.43.0
+    rev: v0.48.0
     hooks:
       - id: markdownlint
         name: 'markdownlint: lint and fix markdown files'
-        args: ['--fix', '--disable', 'MD013', 'MD033', 'MD036', 'MD040', 'MD041', '--']
+        args: ['--fix', '--disable', 'MD013', 'MD033', 'MD036', 'MD040', 'MD041', 'MD060', '--']
         # MD013: line length (too strict for docs)
         # MD033: inline HTML (needed sometimes)
         # MD036: emphasis as heading (plan docs use **Step X:** pattern)
         # MD040: fenced code language (not always relevant)
         # MD041: first line heading (not always wanted)
+        # MD060: table column style (new in v0.48; conflicts with compact separator rows)
 
   # =============================================================
   # .env file — prevent committing real secrets
   # =============================================================
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-added-large-files
         name: 'check-added-large-files: block .env commits'
