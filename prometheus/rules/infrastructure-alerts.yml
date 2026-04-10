@@ -1,0 +1,42 @@
+groups:
+  - name: infrastructure-alerts
+    rules:
+      - alert: ContainerRestarting
+        expr: |
+          changes(process_start_time_seconds[10m]) > 3
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Service {{ $labels.job }} is restarting frequently"
+          description: "{{ $labels.job }} instance {{ $labels.instance }} has restarted more than 3 times in the last 10 minutes."
+
+      - alert: HighMemoryUsage
+        expr: |
+          process_resident_memory_bytes / 1024 / 1024 > 512
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.job }}"
+          description: "{{ $labels.job }} instance {{ $labels.instance }} is using more than 512MB of memory (current: {{ $value | humanize }}MB)."
+
+      - alert: HighCpuUsage
+        expr: |
+          rate(process_cpu_seconds_total[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.job }}"
+          description: "{{ $labels.job }} instance {{ $labels.instance }} CPU usage is above 80% for the last 5 minutes (current: {{ $value | humanizePercentage }})."
+
+      - alert: PushgatewayStaleMetrics
+        expr: |
+          (time() - push_time_seconds) > 120
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Stale metrics in Pushgateway for job {{ $labels.job }}"
+          description: "Pushgateway has not received a push for job {{ $labels.job }} in over 2 minutes."

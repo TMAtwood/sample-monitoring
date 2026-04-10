@@ -1,0 +1,573 @@
+# Monitoring Stack Reference Architecture
+# Usage: podman compose up -d
+# Docs:  docs/plans/2026-02-25-monitoring-stack-design.md
+
+networks:
+  monitoring-net:
+    driver: bridge
+
+volumes:
+  prometheus-use1-1-data:
+  prometheus-use1-2-data:
+  minio-data:
+  grafana-data:
+  pushgateway-data:
+  loki-data:
+  tempo-data:
+  postgres-data:
+
+services:
+  # ════════════════════════════════════════════════════════
+  # APPLICATION SERVICES
+  # ════════════════════════════════════════════════════════
+
+  # ── Spring Boot 4 ───────────────────────────────────────
+  spring-boot-app:
+    build:
+      context: ./services/spring-boot-app
+    container_name: spring-boot-app
+    environment:
+      OTEL_SERVICE_NAME: spring-boot-app
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${SPRING_BOOT_PORT}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── .NET 10 ─────────────────────────────────────────────
+  dotnet-app:
+    build:
+      context: ./services/dotnet-app
+    container_name: dotnet-app
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      OTEL_SERVICE_NAME: dotnet-app
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      ConnectionStrings__OrdersDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+    ports:
+      - "${DOTNET_PORT}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── FastAPI ─────────────────────────────────────────────
+  fastapi-app:
+    build:
+      context: ./services/fastapi-app
+    container_name: fastapi-app
+    environment:
+      OTEL_SERVICE_NAME: fastapi-app
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    ports:
+      - "${FASTAPI_PORT}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Azure Function ──────────────────────────────────────
+  azure-func:
+    build:
+      context: ./services/azure-func
+    container_name: azure-func
+    environment:
+      AzureWebJobsStorage: ""
+      FUNCTIONS_WORKER_RUNTIME: python
+      PUSHGATEWAY_URL: pushgateway:9091
+      OTEL_SERVICE_NAME: azure-func
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    ports:
+      - "${AZURE_FUNC_PORT}:80"
+    depends_on:
+      - pushgateway
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ── React Admin ──────────────────────────────────────────
+  react-admin-app:
+    build:
+      context: ./services/react-admin-app
+    container_name: react-admin-app
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${REACT_ADMIN_PORT}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/healthz').then(r => { if (!r.ok) process.exit(1) })"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── React Dashboard ──────────────────────────────────────
+  react-dashboard-app:
+    build:
+      context: ./services/react-dashboard-app
+    container_name: react-dashboard-app
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${REACT_DASHBOARD_PORT}:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3002/healthz').then(r => { if (!r.ok) process.exit(1) })"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ════════════════════════════════════════════════════════
+  # DATA STORES
+  # ════════════════════════════════════════════════════════
+
+  # ── PostgreSQL ─────────────────────────────────────────
+  postgres:
+    image: docker.io/library/postgres:${POSTGRES_VERSION}
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── PostgreSQL Exporter ────────────────────────────────
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v${POSTGRES_EXPORTER_VERSION}
+    container_name: postgres-exporter
+    environment:
+      DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB}?sslmode=disable
+      DATA_SOURCE_USER: exporter
+      DATA_SOURCE_PASS: ${POSTGRES_EXPORTER_PASSWORD}
+    ports:
+      - "${POSTGRES_EXPORTER_PORT}:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════
+  # MONITORING INFRASTRUCTURE
+  # ════════════════════════════════════════════════════════
+
+  # ── Object Storage ──────────────────────────────────────
+  minio:
+    image: quay.io/minio/minio:${MINIO_VERSION}
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "${MINIO_API_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
+    networks:
+      - monitoring-net
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: quay.io/minio/mc:${MINIO_MC_VERSION}
+    container_name: minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+    volumes:
+      - ./minio/init.sh:/init.sh:ro
+    entrypoint: /bin/sh
+    command: /init.sh
+    networks:
+      - monitoring-net
+    restart: "no"
+
+  # ── Prometheus HA ───────────────────────────────────────
+  prometheus-use1-1:
+    image: quay.io/prometheus/prometheus:${PROMETHEUS_VERSION}
+    container_name: prometheus-use1-1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=2h
+      - --storage.tsdb.min-block-duration=5m
+      - --storage.tsdb.max-block-duration=5m
+      - --web.enable-lifecycle
+      - --web.enable-admin-api
+      - --web.enable-remote-write-receiver
+      - --enable-feature=expand-external-labels
+    environment:
+      REPLICA: use1-1
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-use1-1-data:/prometheus
+    ports:
+      - "${PROMETHEUS_USE1_1_PORT}:9090"
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  prometheus-use1-2:
+    image: quay.io/prometheus/prometheus:${PROMETHEUS_VERSION}
+    container_name: prometheus-use1-2
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=2h
+      - --storage.tsdb.min-block-duration=5m
+      - --storage.tsdb.max-block-duration=5m
+      - --web.enable-lifecycle
+      - --web.enable-admin-api
+      - --enable-feature=expand-external-labels
+    environment:
+      REPLICA: use1-2
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-use1-2-data:/prometheus
+    ports:
+      - "${PROMETHEUS_USE1_2_PORT}:9090"
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Thanos Sidecars ─────────────────────────────────────
+  thanos-sidecar-use1-1:
+    image: quay.io/thanos/thanos:${THANOS_VERSION}
+    container_name: thanos-sidecar-use1-1
+    user: "nobody"
+    command:
+      - sidecar
+      - --tsdb.path=/prometheus
+      - --prometheus.url=http://prometheus-use1-1:9090
+      - --objstore.config-file=/etc/thanos/objstore.yml
+      - --grpc-address=0.0.0.0:10901
+      - --http-address=0.0.0.0:10902
+    volumes:
+      - ./thanos/objstore.yml:/etc/thanos/objstore.yml:ro
+      - prometheus-use1-1-data:/prometheus
+    depends_on:
+      prometheus-use1-1:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  thanos-sidecar-use1-2:
+    image: quay.io/thanos/thanos:${THANOS_VERSION}
+    container_name: thanos-sidecar-use1-2
+    user: "nobody"
+    command:
+      - sidecar
+      - --tsdb.path=/prometheus
+      - --prometheus.url=http://prometheus-use1-2:9090
+      - --objstore.config-file=/etc/thanos/objstore.yml
+      - --grpc-address=0.0.0.0:10901
+      - --http-address=0.0.0.0:10902
+    volumes:
+      - ./thanos/objstore.yml:/etc/thanos/objstore.yml:ro
+      - prometheus-use1-2-data:/prometheus
+    depends_on:
+      prometheus-use1-2:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ── Thanos Query ────────────────────────────────────────
+  thanos-query:
+    image: quay.io/thanos/thanos:${THANOS_VERSION}
+    container_name: thanos-query
+    command:
+      - query
+      - --http-address=0.0.0.0:9090
+      - --grpc-address=0.0.0.0:10901
+      - --endpoint=thanos-sidecar-use1-1:10901
+      - --endpoint=thanos-sidecar-use1-2:10901
+      - --endpoint=thanos-store-gateway:10901
+      - --query.replica-label=replica
+    ports:
+      - "${THANOS_QUERY_PORT}:9090"
+    depends_on:
+      - thanos-sidecar-use1-1
+      - thanos-sidecar-use1-2
+      - thanos-store-gateway
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ── Thanos Store Gateway ────────────────────────────────
+  thanos-store-gateway:
+    image: quay.io/thanos/thanos:${THANOS_VERSION}
+    container_name: thanos-store-gateway
+    command:
+      - store
+      - --data-dir=/tmp/thanos-store
+      - --objstore.config-file=/etc/thanos/objstore.yml
+      - --grpc-address=0.0.0.0:10901
+      - --http-address=0.0.0.0:10902
+    volumes:
+      - ./thanos/objstore.yml:/etc/thanos/objstore.yml:ro
+    depends_on:
+      - minio-init
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ── Thanos Compactor ────────────────────────────────────
+  thanos-compactor:
+    image: quay.io/thanos/thanos:${THANOS_VERSION}
+    container_name: thanos-compactor
+    command:
+      - compact
+      - --data-dir=/tmp/thanos-compact
+      - --objstore.config-file=/etc/thanos/objstore.yml
+      - --http-address=0.0.0.0:10902
+      - --wait
+      - --consistency-delay=30s
+    volumes:
+      - ./thanos/objstore.yml:/etc/thanos/objstore.yml:ro
+    depends_on:
+      - minio-init
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ── Pushgateway ─────────────────────────────────────────
+  pushgateway:
+    image: quay.io/prometheus/pushgateway:${PUSHGATEWAY_VERSION}
+    container_name: pushgateway
+    command:
+      - --web.listen-address=:9091
+      - --persistence.file=/data/pushgateway.dat
+    volumes:
+      - pushgateway-data:/data
+    ports:
+      - "${PUSHGATEWAY_PORT}:9091"
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ── Blackbox Exporter ───────────────────────────────────
+  blackbox-exporter:
+    image: quay.io/prometheus/blackbox-exporter:${BLACKBOX_VERSION}
+    container_name: blackbox-exporter
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    ports:
+      - "${BLACKBOX_PORT}:9115"
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ── Alertmanager ────────────────────────────────────────
+  alertmanager:
+    image: quay.io/prometheus/alertmanager:${ALERTMANAGER_VERSION}
+    container_name: alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager/templates:/etc/alertmanager/templates:ro
+    ports:
+      - "${ALERTMANAGER_PORT}:9093"
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ── Mailhog ────────────────────────────────────────────
+  mailhog:
+    image: docker.io/mailhog/mailhog:${MAILHOG_VERSION}
+    container_name: mailhog
+    ports:
+      - "${MAILHOG_SMTP_PORT}:1025"
+      - "${MAILHOG_UI_PORT}:8025"
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ── Loki ────────────────────────────────────────────────
+  loki:
+    image: docker.io/grafana/loki:${LOKI_VERSION}
+    container_name: loki
+    command:
+      - -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    ports:
+      - "${LOKI_PORT}:3100"
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ── Promtail ───────────────────────────────────────────
+  promtail:
+    image: docker.io/grafana/promtail:${PROMTAIL_VERSION}
+    container_name: promtail
+    command:
+      - -config.file=/etc/promtail/promtail.yml
+    volumes:
+      - ./promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - ${DOCKER_SOCK:-/run/user/1001/podman/podman.sock}:/var/run/docker.sock:ro
+    ports:
+      - "${PROMTAIL_PORT}:9080"
+    depends_on:
+      loki:
+        condition: service_started
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ── Tempo ───────────────────────────────────────────────
+  tempo:
+    image: docker.io/grafana/tempo:${TEMPO_VERSION}
+    container_name: tempo
+    command:
+      - -config.file=/etc/tempo/tempo.yml
+    volumes:
+      - ./tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "${TEMPO_PORT}:3200"
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ── OpenTelemetry Collector ────────────────────────────
+  otel-collector:
+    image: docker.io/otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION}
+    container_name: otel-collector
+    command:
+      - --config=/etc/otel-collector/otel-collector.yml
+    volumes:
+      - ./otel-collector/otel-collector.yml:/etc/otel-collector/otel-collector.yml:ro
+    ports:
+      - "${OTEL_COLLECTOR_GRPC_PORT}:4317"
+      - "${OTEL_COLLECTOR_HTTP_PORT}:4318"
+    depends_on:
+      tempo:
+        condition: service_started
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════
+  # VISUALIZATION
+  # ════════════════════════════════════════════════════════
+
+  # ── Grafana ─────────────────────────────────────────────
+  grafana:
+    image: docker.io/grafana/grafana:${GRAFANA_VERSION}
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_METRICS_ENABLED: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT}:3000"
+    depends_on:
+      - thanos-query
+      - loki
+      - tempo
+    networks:
+      - monitoring-net
+    restart: unless-stopped

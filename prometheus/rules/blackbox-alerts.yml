@@ -1,0 +1,41 @@
+groups:
+  - name: blackbox-alerts
+    rules:
+      - alert: EndpointDown
+        expr: probe_success == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Endpoint {{ $labels.instance }} is down"
+          description: "Blackbox probe has failed for {{ $labels.instance }} for more than 1 minute."
+
+      - alert: SlowEndpoint
+        expr: probe_duration_seconds > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow response from {{ $labels.instance }}"
+          description: "{{ $labels.instance }} is responding slowly (current: {{ $value | humanizeDuration }})."
+
+      - alert: SSLCertExpiringSoon
+        expr: |
+          (probe_ssl_earliest_cert_expiry > 0)
+          and
+          (probe_ssl_earliest_cert_expiry - time()) / 86400 < 30
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "SSL certificate expiring soon for {{ $labels.instance }}"
+          description: "SSL certificate for {{ $labels.instance }} expires in {{ $value | humanize }} days."
+
+      - alert: DNSResolutionFailure
+        expr: probe_dns_lookup_time_seconds == 0 and probe_success == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DNS resolution failure for {{ $labels.instance }}"
+          description: "DNS lookup failed for {{ $labels.instance }}."

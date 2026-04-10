@@ -1,0 +1,140 @@
+exclude: '(node_modules/|obj/|bin/|\.cache/)'
+
+repos:
+  # =============================================================
+  # General file hygiene
+  # =============================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        name: 'trailing-whitespace: trim trailing whitespace'
+      - id: end-of-file-fixer
+        name: 'end-of-file-fixer: fix missing newline at end of file'
+      - id: check-added-large-files
+        name: 'check-added-large-files: block files over 1MB'
+        args: ['--maxkb=1024']
+      - id: check-merge-conflict
+        name: 'check-merge-conflict: detect merge conflict markers'
+      - id: check-case-conflict
+        name: 'check-case-conflict: detect filename case conflicts'
+      - id: mixed-line-ending
+        name: 'mixed-line-ending: enforce LF line endings'
+        args: ['--fix=lf']
+      - id: detect-private-key
+        name: 'detect-private-key: block private key files'
+      - id: check-symlinks
+        name: 'check-symlinks: detect broken symlinks'
+      - id: destroyed-symlinks
+        name: 'destroyed-symlinks: detect symlinks changed to regular files'
+      - id: no-commit-to-branch
+        name: 'no-commit-to-branch: block direct commits to main'
+        args: ['--branch', 'main']
+
+  # =============================================================
+  # YAML validation (prometheus, alertmanager, loki, tempo, etc.)
+  # =============================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        name: 'check-yaml: validate YAML syntax'
+        args: ['--allow-multiple-documents']
+        files: \.(yml|yaml)$
+
+  # =============================================================
+  # JSON validation (Grafana dashboards, package.json, tsconfig)
+  # =============================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-json
+        name: 'check-json: validate JSON syntax'
+        files: \.json$
+        exclude: (node_modules|obj/|bin/|\.vscode/)
+
+      - id: pretty-format-json
+        name: 'pretty-format-json: auto-format Grafana dashboard JSON'
+        args: ['--autofix', '--indent', '2', '--no-sort-keys']
+        files: ^grafana/dashboards/.*\.json$
+
+  # =============================================================
+  # Shell script linting
+  # =============================================================
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        name: 'shellcheck: lint shell scripts'
+        args: ['--severity=warning']
+        files: \.sh$
+
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.10.0-1
+    hooks:
+      - id: shfmt
+        name: 'shfmt: format shell scripts'
+        args: ['-i', '2', '-ci']
+        files: \.sh$
+
+  # =============================================================
+  # Dockerfile linting (native binary — no Docker/Podman needed)
+  # =============================================================
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.13.1-beta
+    hooks:
+      - id: hadolint
+        name: 'hadolint: lint Dockerfiles'
+        args: ['--ignore', 'DL3008', '--ignore', 'DL3013', '--ignore', 'DL3018']
+        # DL3008: pin apt versions (noisy for dev images)
+        # DL3013: pin pip versions (handled by requirements.txt)
+        # DL3018: pin apk versions
+
+  # =============================================================
+  # Python — ruff (linting + formatting for fastapi-app, azure-func)
+  # =============================================================
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        name: 'ruff: lint Python files'
+        args: ['--fix', '--exit-non-zero-on-fix']
+        files: \.py$
+      - id: ruff-format
+        name: 'ruff-format: format Python files'
+        files: \.py$
+
+  # =============================================================
+  # Secrets scanning
+  # =============================================================
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.22.1
+    hooks:
+      - id: gitleaks
+        name: 'gitleaks: scan for hardcoded secrets'
+
+  # =============================================================
+  # Markdown linting
+  # =============================================================
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.43.0
+    hooks:
+      - id: markdownlint
+        name: 'markdownlint: lint and fix markdown files'
+        args: ['--fix', '--disable', 'MD013', 'MD033', 'MD036', 'MD040', 'MD041', '--']
+        # MD013: line length (too strict for docs)
+        # MD033: inline HTML (needed sometimes)
+        # MD036: emphasis as heading (plan docs use **Step X:** pattern)
+        # MD040: fenced code language (not always relevant)
+        # MD041: first line heading (not always wanted)
+
+  # =============================================================
+  # .env file — prevent committing real secrets
+  # =============================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        name: 'check-added-large-files: block .env commits'
+        files: ^\.env$
+        args: ['--maxkb=0']

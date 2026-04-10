@@ -1,0 +1,51 @@
+groups:
+  - name: meta-alerts
+    rules:
+      - alert: PrometheusTargetDown
+        expr: up{job=~"prometheus|thanos-.*|alertmanager|pushgateway|grafana"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus target {{ $labels.job }}/{{ $labels.instance }} is down"
+          description: "Prometheus cannot scrape {{ $labels.job }} at {{ $labels.instance }} for more than 2 minutes."
+
+      - alert: PrometheusScrapeErrors
+        expr: |
+          rate(prometheus_target_scrapes_exceeded_sample_limit_total[5m]) > 0
+          or
+          rate(prometheus_target_scrapes_sample_duplicate_timestamp_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus scrape errors detected"
+          description: "Prometheus is experiencing scrape errors (exceeded sample limit or duplicate timestamps)."
+
+      - alert: ThanosCompactHalted
+        expr: thanos_compact_halted == 1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Thanos Compactor has halted"
+          description: "Thanos Compactor has halted and is no longer compacting blocks."
+
+      - alert: ThanosQueryGrpcErrors
+        expr: |
+          rate(grpc_server_handled_total{grpc_code=~"Unknown|Internal|Unavailable", job="thanos-query"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Thanos Query gRPC errors"
+          description: "Thanos Query is experiencing gRPC errors above 5% (current: {{ $value | humanizePercentage }})."
+
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alertmanager is down"
+          description: "Alertmanager has been unreachable for more than 1 minute."

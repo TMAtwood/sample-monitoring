@@ -1,0 +1,25 @@
+# Build artifacts
+services/spring-boot-app/target/
+services/dotnet-app/bin/
+services/dotnet-app/obj/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDE
+.idea/
+.vs/
+
+*.swp
+
+# Environment (use .env.example as template)
+.env
+
+# Data volumes (created at runtime)
+data/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,6 @@
+{
+    "azureFunctions.deploySubpath": "services\\azure-func",
+    "azureFunctions.projectLanguage": "Custom",
+    "azureFunctions.projectRuntime": "~4",
+    "debug.internalConsoleOptions": "neverOpen"
+}

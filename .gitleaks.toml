@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Grafana default credentials in documentation examples"
+paths = ['''docs/plans/.*\.md$''']

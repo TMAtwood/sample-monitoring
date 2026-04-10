@@ -1,0 +1,31 @@
+# Credentials here must match MINIO_ROOT_USER / MINIO_ROOT_PASSWORD in .env
+# For production, use a secrets manager or Thanos --objstore.config with env substitution
+type: S3
+config:
+  bucket: thanos-data
+  endpoint: minio:9000
+  access_key: thanos
+  secret_key: changeme
+  insecure: true
+  # ── To swap to a cloud provider, replace the above with one of: ──
+  #
+  # AWS S3:
+  #   type: S3
+  #   config:
+  #     bucket: your-bucket
+  #     endpoint: s3.us-east-1.amazonaws.com
+  #     access_key: <AWS_ACCESS_KEY>
+  #     secret_key: <AWS_SECRET_KEY>
+  #
+  # Azure Blob Storage:
+  #   type: AZURE
+  #   config:
+  #     storage_account: <ACCOUNT_NAME>
+  #     storage_account_key: <ACCOUNT_KEY>
+  #     container: thanos-data
+  #
+  # GCS:
+  #   type: GCS
+  #   config:
+  #     bucket: your-bucket
+  #     service_account: <path-to-service-account-json>

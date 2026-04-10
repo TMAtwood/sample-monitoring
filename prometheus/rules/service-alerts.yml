@@ -1,0 +1,79 @@
+groups:
+  - name: service-alerts
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "{{ $labels.job }} instance {{ $labels.instance }} has been unreachable for more than 1 minute."
+
+      - alert: HighErrorRate
+        expr: |
+          (
+            (
+              sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+              / sum by (job) (rate(http_server_requests_seconds_count[5m]))
+            )
+            or
+            (
+              sum by (job) (rate(http_request_duration_seconds_count{job="dotnet-app",code=~"5.."}[5m]))
+              / sum by (job) (rate(http_request_duration_seconds_count{job="dotnet-app"}[5m]))
+            )
+            or
+            (
+              sum by (job) (rate(http_requests_total{job="fastapi-app",status=~"5xx"}[5m]))
+              / sum by (job) (rate(http_requests_total{job="fastapi-app"}[5m]))
+            )
+            or
+            (
+              sum by (job) (rate(http_requests_total{job="react-admin-app",code=~"5.."}[5m]))
+              / sum by (job) (rate(http_requests_total{job="react-admin-app"}[5m]))
+            )
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate on {{ $labels.job }}"
+          description: "{{ $labels.job }} has a 5xx error rate above 5% for the last 5 minutes (current: {{ $value | humanizePercentage }})."
+
+      - alert: HighLatencyP99
+        expr: |
+          (
+            histogram_quantile(0.99, sum by (job, le) (rate(http_server_requests_seconds_bucket[5m])))
+            or
+            histogram_quantile(0.99, sum by (job, le) (rate(http_request_duration_seconds_bucket{job=~"dotnet-app|fastapi-app|react-admin-app"}[5m])))
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p99 latency on {{ $labels.job }}"
+          description: "{{ $labels.job }} p99 latency is above 1s for the last 5 minutes (current: {{ $value | humanizeDuration }})."
+
+      - alert: HighLatencyP99Critical
+        expr: |
+          (
+            histogram_quantile(0.99, sum by (job, le) (rate(http_server_requests_seconds_bucket[5m])))
+            or
+            histogram_quantile(0.99, sum by (job, le) (rate(http_request_duration_seconds_bucket{job=~"dotnet-app|fastapi-app|react-admin-app"}[5m])))
+          ) > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical p99 latency on {{ $labels.job }}"
+          description: "{{ $labels.job }} p99 latency is above 5s for the last 5 minutes (current: {{ $value | humanizeDuration }})."
+
+      - alert: TooManyInFlightRequests
+        expr: |
+          sum by (job) (http_server_active_requests) > 100
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High in-flight requests on {{ $labels.job }}"
+          description: "{{ $labels.job }} has more than 100 in-flight requests for the last 2 minutes (current: {{ $value }})."

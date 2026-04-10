@@ -1,0 +1,6 @@
+azure-functions==1.21.3
+prometheus-client==0.22.0
+requests==2.32.3
+opentelemetry-api==1.24.0
+opentelemetry-sdk==1.24.0
+opentelemetry-exporter-otlp-proto-grpc==1.24.0
